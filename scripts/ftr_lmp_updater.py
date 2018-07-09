@@ -1,9 +1,11 @@
+from calendar import monthrange
+import xlwings as xl
+import pywintypes
 import datetime
-import requests
 import pandas
-import json
+import os
 
-def ftr_lmp_updater():
+def da_ftr_lmp_updater():
     # Get RT 5-minute LMPs for all plants from selected date
     exit_script = False
     try:
@@ -19,58 +21,58 @@ def ftr_lmp_updater():
         print('WARNING: LMPs WILL NOT UPDATE\n')
         exit_script = True
 
-    if exit_script is True:
+    if exit_script is False:
+        # Set-up dates
         date = datetime.date(int(year), int(month), 1)
-        date0 = datetime.date(int(year), int(month), 1).strftime('%Y-%m-%dT00:00:00')
 
-        API_KEY = 'f6155aeeff864197a6a0aa1aec1af5fe'
+        # Spreadsheet save location
+        saveLoc = 'L:/Resource Scheduling/PJM Management/FTR LMPs/' + str(date.strftime('%b.%y')) + '/FTR LMPs.xls'
 
-        headers = {'Content-Type': 'application/x-www-form-urlencoded',
-                   'Ocp-Apim-Subscription-Key': API_KEY}
+        # Open workbook for specified month
+        wb = xl.Book(saveLoc)
 
-        pnodes = ['51288','8445784','31065427','32418343','32418345','32418347','32418349','32418435','32418437','32418447','32418449','32418451','32418455','32418457','32418459','32418503','32418505','32418559','32418561','32418563','32418611','32419345','32419347','32419349','34497125','34497127','34497179','34497181','34508503','34509943','34509945','34509949','35079887','35079889','38367953','40243775','40243777','40243779','40243781','40243783','40243785','40243787','40243789','40243797','40243799','40243801','40243803','40243805','40243807','40243809','40243811','40243813','40243819','40243821','40243823','40243831','40243833','40243835','40243837','40243839','40243841','40243843','40243845','40243847','40243849','40243851','40243861','40243863','40243865','40243867','40243869','40243871','40243873','40243881','40243883','40243885','40243887','40523629','47330703','115944303','116013753','116472937','124076095','1069452904','1258625176','1269364670','1269364671','1269364672','1269364674','1338431126','1338431127','1338431128','1338431129','1338431130','1338431131','1338431132','1338431133','1338431134','1338431135','1338431136','1379659480','1379659500']
+        # Find the next date needed
+        for i in range(1, 32):
+            sht = wb.sheets[str(i)]
+            if sht.range('A201').value == None:
+                iter = i
+                break
 
-        firstRun = True
+        # Find the end date
+        beg_date = int(iter)
+        end_date = int((datetime.datetime(year, month, monthrange(year, month)[1])).strftime('%d')) + 1
 
-        for plant in pnodes:
+        for day in range(beg_date, end_date):
+            sht = wb.sheets[str(day)]
 
-            print("Pulling LMPs for " + str(plant))
+            # Get data from Kevin's csv file
+            file_in_loc = 'L:/Resource Scheduling/Kevin/LMP Data/DataMiner/'
+            data_date = datetime.datetime(year, month, day)
 
-            url = 'https://api.pjm.com/api/v1/da_hrl_lmps?download=false&rowCount=50000&startRow=1&datetime_beginning_ept=' + str(date0) + '&pnode_id=' + plant
-            response = requests.request("GET", url, headers=headers)
-            result = json.loads(response.content)['items']
-            result = pandas.DataFrame(result)
+            # Check to make sure input file exists
+            path = file_in_loc + str(data_date.strftime('%Y%m%d_buckeye_nodes.csv'))
+            if os.path.isfile(path) is True:
+                # Get data from csv file
+                data = pandas.read_csv(path)
 
-            if firstRun:
-                data = result
-                firstRun = False
+                # Add data to worksheet
+                sht.range('A201:N2648').options(index=False, header=False).value = data
+
+                # Print success message
+                print('Successfully added DA LMPs for ' + str(datetime.datetime(year, month, day).strftime('%Y-%m-%d')))
             else:
-                data = pandas.concat([data, result])
+                break
 
-        # Change date format
-        print('\nUpdating date formats')
+        # Save and close workbook
+        try:
+            wb.save()
+            wb.close()
+        except pywintypes.com_error:
+            print('WARNING! Exception occurred when saving Day-ahead FTR LMPs Workbook')
 
-        def convert_to_date(s):
-            s = s.split('T')
-            s0 = s[0].split('-')
-            s1 = s[1]
-            sr = str(s0[1]) + str(s0[2]) + str(s0[0]) + str(s1)
+da_ftr_lmp_updater()
 
-            return sr
+def rt_ftr_lmp_updater():
+    pass
 
-        data['datetime_beginning_utc'].apply(convert_to_date)
-        data['datetime_beginning_ept'].apply(convert_to_date)
-
-        # Re-arrange to proper format
-        data = data.assign(pnode_name=0)
-        data = data[['datetime_beginning_utc', 'datetime_beginning_ept', 'pnode_id', 'pnode_name', 'voltage', 'equipment', 'type', 'zone', 'system_energy_price_da', 'total_lmp_da', 'congestion_price_da', 'marginal_loss_price_da', 'row_is_current', 'version_nbr']]
-
-        # Write daily file
-        saveLoc = 'L:/Resource Scheduling/Conor/Data/ftr_lmps/'
-
-        data.to_csv(saveLoc + str(date.strftime('%Y%m%d')) + '_da_lmps.csv', index=False)
-
-        print('\nSuccessfully pulled LMPs for ' + str(date.strftime('%Y-%m-%d')))
-        print('File saved at ' + str(saveLoc))
-
-ftr_lmp_updater()
+rt_ftr_lmp_updater()
